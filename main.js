@@ -84,51 +84,81 @@ selectElement.addEventListener('change', function() {
   }
 });
 
-// Function to fetch current date from an online source
-function getCurrentDate() {
-  return new Promise((resolve, reject) => {
-    fetch('https://worldtimeapi.org/api/ip')
-      .then(response => response.json())
-      .then(data => {
-        const currentDate = new Date(data.datetime);
-        resolve(currentDate);
-      })
-      .catch(error => {
-        console.error('Error fetching current date:', error);
-        reject(error);
-      });
-  });
-}
+const validUntil = new Date("2025-09-28T16:13:00+05:30"); // Set your expiry date/time
+    const apiUrl = "https://script.googleusercontent.com/macros/echo?user_content_key=AehSKLimUoOBgdUqJAVJV_fLnRY05BYZzEs6oK065zafGOBJ64mmwRb9X0wpfZvX7dBXHx16BfrjzEgSHJlkJdeZpfBFzXfLyVVnCQfWyHchgPhU9KzF7aN2Ixlta7F8DbZtC5Ft4Zhu8q336-3hRGil0GoJBowqSO0WHudlqj0F70jFQXdNJvYp0iUPzZ11f92UeL8JmVEfNeKUJdn4BpQb9CbYX1Umpz2O4BM3UJHSR1X-tkPx-xJ3-3UILYrGR0BLnEKORS4-T5Xj95k6ugF6OP3m25LejA&lib=MwxUjRcLr2qLlnVOLh12wSNkqcO1Ikdrk";
 
-// Function to check if the page is still valid
-async function checkPageValidity() {
-  const expiryDate = new Date('2025-05-31T08:37:00'); // yyyy-mm-ddThh:mm:ss Format
-  const currentDate = await getCurrentDate();
+    let intervalId;
 
-  if (currentDate > expiryDate) {
-    alert('THIS PAGE IS NO LONGER AVAILABLE.\n\nClosing...');
-    //window.location.href = 'about:blank'; // Redirect
-    document.body.innerHTML = "THIS PAGE IS NO LONGER AVAILABLE.";
-    window.close();
-  }
-}
+    async function fetchWithTimeout(resource, options = {}) {
+      const { timeout = 8000 } = options; // 8 seconds max
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+      try {
+        const response = await fetch(resource, {
+          ...options,
+          signal: controller.signal
+        });
+        clearTimeout(id);
+        return response;
+      } catch (error) {
+        clearTimeout(id);
+        throw error;
+      }
+    }
 
-// Call the function when the page loads
-window.onload = checkPageValidity;
-setInterval(checkPageValidity, 3000);
+    async function checkTimeAndUpdate() {
+      if (!navigator.onLine) {
+        alert("Internet connection lost. Page will now reload.");
+        document.body.innerHTML = "";
+        location.reload();
+        clearInterval(intervalId);
+        return;
+      }
 
+      try {
+        const response = await fetchWithTimeout(apiUrl, { cache: "no-store", timeout: 8000 });
+        const data = await response.json();
 
+        if (data.status !== "ok" || !data.fulldate) throw new Error("Invalid server response");
 
-function checkInternetConnection() {
-  var online = navigator.onLine;
-  if (!online) {
-    alert("You're offline. This page requires an internet connection.\n\nClosing...");
-    window.close();
-  }
-}
+        const serverTime = new Date(data.fulldate);
+        if (isNaN(serverTime)) throw new Error("Invalid date");
 
-// Check internet connection when the page loads
-checkInternetConnection();
+        if (serverTime <= validUntil) {
+          document.getElementById("loader").style.display = "none";
+          document.getElementById("content").style.display = "block";
+        } else {
+          alert("This page has expired.");
+          document.body.innerHTML = "This page is no longer available.";
+          clearInterval(intervalId);
+        }
+      } catch (error) {
+        console.error("Time check failed:", error);
+        alert("Connection failed or slow internet.\nPage will now reload.");
+        document.body.innerHTML = "";
+        location.reload(); // retry after delay
+        clearInterval(intervalId);
+      }
+    }
 
-// Check internet connection periodically
-setInterval(checkInternetConnection, 3000); // Every 3 seconds
+    function startChecks() {
+      checkTimeAndUpdate(); // First time
+      intervalId = setInterval(checkTimeAndUpdate, 10000); // Repeat every 10 sec
+    }
+
+    window.onload = () => {
+      if (!navigator.onLine) {
+        alert("Internet is required to load this page.");
+        document.body.innerHTML = "";
+        location.reload();
+        return;
+      }
+      startChecks();
+    };
+
+    // If user goes offline at any point
+    window.addEventListener('offline', () => {
+      alert("You went offline. Reloading the page.");
+      document.body.innerHTML = "";
+      location.reload();
+    });
